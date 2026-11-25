@@ -1,0 +1,155 @@
+"""
+CSA0715 - Computer Networks | Assignment 2 (CO2)
+All-in-One Execution Script (Q1 through Q6 Verification & Complete-the-Code Solutions)
+Student: Vigneshwaran S (Reg No: 192525357)
+"""
+import ipaddress
+import math
+
+
+def run_q1_address_audit():
+    print("=" * 70)
+    print("Q1: HOSPITAL GROUP IPv4 SUBNET & HOST VALIDITY AUDIT")
+    print("=" * 70)
+    devices = [
+        ("Admission PC", "172.16.45.200/20"),
+        ("Lab Printer", "10.0.15.255/21"),
+        ("X-ray Server", "192.168.4.0/23"),
+        ("Clinic Router", "203.0.113.10/29"),
+    ]
+    for name, cidr in devices:
+        iface = ipaddress.IPv4Interface(cidr)
+        net = iface.network
+        is_valid = (iface.ip != net.network_address) and (iface.ip != net.broadcast_address)
+        hosts = list(net.hosts())
+        print(f"{name:<15} | IP: {str(iface.ip):<15} | Net: {str(net.network_address):<14} | "
+              f"Bcast: {str(net.broadcast_address):<14} | Range: {hosts[0]} - {hosts[-1]} | Valid: {is_valid}")
+    print()
+
+
+def run_q2_vlsm():
+    print("=" * 70)
+    print("Q2: VARIABLE-LENGTH SUBNETTING (VLSM) & HOSTEL TRAP CHECK")
+    print("=" * 70)
+
+    def to_int(ip):
+        a, b, c, d = map(int, ip.split("."))
+        return (a << 24) | (b << 16) | (c << 8) | d
+
+    def to_ip(n):
+        return ".".join(str((n >> s) & 255) for s in (24, 16, 8, 0))
+
+    def vlsm(base, needs):
+        addr = to_int(base)
+        for name, hosts in sorted(needs, key=lambda x: -x[1]):
+            bits = math.ceil(math.log2(hosts + 2))
+            block = 2 ** bits
+            prefix = 32 - bits
+            first_host = to_ip(addr + 1)
+            last_host = to_ip(addr + block - 2)
+            bcast = to_ip(addr + block - 1)
+            # Verify with Python's ipaddress module
+            net_check = ipaddress.IPv4Network(f"{to_ip(addr)}/{prefix}")
+            assert str(net_check.broadcast_address) == bcast
+            print(f"{name:<10} {to_ip(addr)}/{prefix:<2}  hosts {first_host} - {last_host}  bcast {bcast}")
+            addr += block
+        return to_ip(addr)
+
+    needs = [("Labs", 100), ("Staff", 50), ("Library", 25), ("WAN link", 2)]
+    next_free = vlsm("192.168.10.0", needs)
+    print("next free address:", next_free)
+
+    # Check adding 60-host Hostel
+    print("\n--- Testing 60-Host Hostel Addition ---")
+    needs_with_hostel = needs + [("Hostel", 60)]
+    end_addr = vlsm("192.168.10.0", needs_with_hostel)
+    print(f"Total address space overflows 192.168.10.255! Reaches: {end_addr} (Trap Confirmed)\n")
+
+
+def run_q3_lpm():
+    print("=" * 70)
+    print("Q3: LONGEST-PREFIX MATCH (LPM) ROUTING TABLE LOOKUP")
+    print("=" * 70)
+    routes = [
+        (ipaddress.IPv4Network("10.0.0.0/8"), "192.0.2.1"),
+        (ipaddress.IPv4Network("10.1.0.0/16"), "192.0.2.5"),
+        (ipaddress.IPv4Network("10.1.2.0/24"), "192.0.2.9"),
+        (ipaddress.IPv4Network("10.1.2.128/25"), "192.0.2.13"),
+        (ipaddress.IPv4Network("0.0.0.0/0"), "198.51.100.1"),
+    ]
+    destinations = ["10.1.2.200", "10.1.2.100", "10.1.9.9", "10.7.7.7", "8.8.8.8"]
+    for dst in destinations:
+        ip = ipaddress.IPv4Address(dst)
+        matches = [r for r in routes if ip in r[0]]
+        best_net, next_hop = max(matches, key=lambda r: r[0].prefixlen)
+        print(f"Destination {dst:<12} -> Matches {str(best_net):<16} -> Next Hop: {next_hop}")
+    print()
+
+
+def run_q4_distance_vector():
+    print("=" * 70)
+    print("Q4: DISTANCE-VECTOR ROUTING (BELLMAN-FORD) & C-D LINK FAILURE")
+    print("=" * 70)
+
+    def simulate_dv(cost_dict, label):
+        INF = 99
+        names = "ABCDE"
+        link = {}
+        for (u, v), c in cost_dict.items():
+            link[u, v] = link[v, u] = c
+
+        table = {u: {v: (0 if u == v else link.get((u, v), INF)) for v in names} for u in names}
+        rounds = 0
+        changed = True
+        while changed:
+            changed = False
+            rounds += 1
+            old = {u: dict(table[u]) for u in names}  # vectors received this round
+            for u in names:
+                for n in names:
+                    if (u, n) not in link:
+                        continue
+                    for dest in names:
+                        new_cost = link[u, n] + old[n][dest]
+                        if new_cost < table[u][dest]:
+                            table[u][dest] = new_cost
+                            changed = True
+
+        print(f"[{label}] converged after {rounds} rounds:")
+        for u in names:
+            print(u, " ".join(f"{table[u][v]:2d}" for v in names))
+        print()
+
+    base_cost = {("A", "B"): 2, ("A", "C"): 7, ("B", "C"): 3,
+                 ("B", "D"): 8, ("C", "D"): 1, ("D", "E"): 4}
+    simulate_dv(base_cost, "Normal Topology")
+
+    failed_cost = dict(base_cost)
+    failed_cost[("C", "D")] = 99
+    simulate_dv(failed_cost, "After Link C-D Fails (Cost = 99)")
+
+
+def run_q5_and_q6_checks():
+    print("=" * 70)
+    print("Q5 & Q6: OSPF COST & IPv6 / MULTICAST MAC CALCULATIONS")
+    print("=" * 70)
+    for speed_mbps, label in [(10, "10 Mbps"), (100, "100 Mbps"), (1000, "1 Gbps"), (10000, "10 Gbps")]:
+        c_def = max(1, 100 // speed_mbps)
+        c_new = max(1, 100000 // speed_mbps)
+        print(f"OSPF {label:<8} -> Default Cost (100M ref): {c_def:<3} | Revised Cost (100G ref): {c_new}")
+
+    ipv6_full = ipaddress.IPv6Address("2001:0db8:0000:0000:0000:ff00:0042:8329")
+    print(f"\nCompressed IPv6 : {ipv6_full.compressed}")
+
+    # Multicast IP 239.1.2.3 -> MAC
+    m_ip = list(map(int, "239.1.2.3".split(".")))
+    m_mac = f"01:00:5e:{m_ip[1] & 0x7F:02x}:{m_ip[2]:02x}:{m_ip[3]:02x}"
+    print(f"Multicast MAC   : {m_mac} (for group 239.1.2.3)\n")
+
+
+if __name__ == "__main__":
+    run_q1_address_audit()
+    run_q2_vlsm()
+    run_q3_lpm()
+    run_q4_distance_vector()
+    run_q5_and_q6_checks()
