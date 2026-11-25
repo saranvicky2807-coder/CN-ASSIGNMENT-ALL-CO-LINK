@@ -1,0 +1,134 @@
+"""
+CSA0715 - Computer Networks | Assignment 4 (CO4)
+All-in-One Execution Script (Task 1 through Task 6 Complete-the-Code & Topology Calculations)
+Student: Vigneshwaran S (Reg No: 192525357)
+"""
+from collections import deque
+from itertools import combinations
+import math
+
+
+def run_task_1_office_bandwidth():
+    print("=" * 72)
+    print("TASK 1: OFFICE BUS/HUB VS. SWITCHED STAR BANDWIDTH COMPARISON")
+    print("=" * 72)
+    users = 30
+    bus_mbps = 10.0
+    star_mbps = 1000.0
+    print(f"Legacy 10 Mbps Coax Bus/Hub (30 PCs) : {bus_mbps / users:.2f} Mbps/PC (raw), "
+          f"~{(bus_mbps * 0.45) / users:.2f} Mbps/PC (with CSMA/CD collisions)")
+    print(f"Redesigned 1 Gbps Switched Star      : {star_mbps:.2f} Mbps/PC (dedicated full-duplex)\n")
+
+
+def run_task_2_topology_reliability():
+    print("=" * 72)
+    print("TASK 2: TOPOLOGY LINKS, PORTS & SINGLE-LINK FAILURE SURVIVAL")
+    print("=" * 72)
+
+    def links(kind, n):
+        nodes = list(range(n))
+        if kind == "bus":
+            return [(i, i + 1) for i in range(n - 1)]  # segments of one backbone
+        if kind == "ring":
+            return [(i, (i + 1) % n) for i in range(n)]
+        if kind == "star":
+            return [("hub", i) for i in nodes]
+        if kind == "mesh":
+            return list(combinations(nodes, 2))
+        raise ValueError(kind)
+
+    def connected_after_failure(edges, n, broken):
+        remaining = [e for e in edges if e != broken]
+        adj = {}
+        for u, v in remaining:
+            adj.setdefault(u, []).append(v)
+            adj.setdefault(v, []).append(u)
+
+        visited = {0}
+        queue = deque([0])
+        while queue:
+            curr = queue.popleft()
+            for nxt in adj.get(curr, []):
+                if nxt not in visited:
+                    visited.add(nxt)
+                    queue.append(nxt)
+
+        offices_reached = sum(1 for node in visited if isinstance(node, int) and 0 <= node < n)
+        return offices_reached == n
+
+    for n in (6, 20):
+        print(f"--- Evaluating Topologies for n = {n} Offices ---")
+        for kind in ("bus", "ring", "star", "mesh"):
+            e = links(kind, n)
+            ports = max(sum(1 for a, b in e if x in (a, b)) for x in set(sum(e, ())))
+            ok = sum(connected_after_failure(e, n, b) for b in e)
+            print(f"{kind:<5} links {len(e):3d}  max ports on one device {ports:2d}  "
+                  f"single-link failures survived {ok}/{len(e)}")
+        print()
+
+    # Hospital 5-block cost comparison
+    print("--- Hospital 5-Block Fibre Cost Comparison (Rs 60k/link + Rs 18k/port) ---")
+    for name, num_links in [("Bus (N=5)", 4), ("Star (N=5)", 4),
+                            ("Ring (N=5)", 5), ("Hybrid Core (N=5)", 5), ("Full Mesh (N=5)", 10)]:
+        num_ports = num_links * 2
+        total_cost = num_links * 60_000 + num_ports * 18_000
+        print(f"{name:<18}: {num_links:2d} links, {num_ports:2d} ports -> Rs {total_cost:,}")
+    print()
+
+
+def run_task_3_cabling_bom():
+    print("=" * 72)
+    print("TASK 3: TIA/EIA-568 CABLING CHECK & BILL OF MATERIALS (10% SPARE)")
+    print("=" * 72)
+    runs = [
+        ("Consulting Rooms (20 drops avg 60m)", 20 * 60),
+        ("Waiting Hall APs (4 drops @ 60m)", 4 * 60),
+        ("Pharmacy Fibre (OM4 Multimode)", 96),
+        ("Main Building Fibre (OS2 Single-Mode)", 420),
+    ]
+    for label, meters in runs:
+        with_spare = math.ceil(meters * 1.10)
+        print(f"{label:<38}: {meters:4d} m base -> {with_spare:4d} m (with 10% spare)")
+    print()
+
+
+def run_task_4_and_5_calculations():
+    print("=" * 72)
+    print("TASK 4 & TASK 5: ALOHA, CSMA/CD, ATM & 802.1Q OVERHEAD")
+    print("=" * 72)
+    pure_aloha = 1 / (2 * math.e)
+    slotted_aloha = 1 / math.e
+    print(f"Pure ALOHA max throughput    : {pure_aloha:.3f} ({pure_aloha * 100:.1f}%)")
+    print(f"Slotted ALOHA max throughput : {slotted_aloha:.3f} ({slotted_aloha * 100:.1f}%)")
+
+    # CSMA/CD minimum frame size: 10 Mbps, 2500 m, speed 2e8 m/s
+    t_prop = 2500 / 2e8
+    min_bits = 10e6 * (2 * t_prop)
+    print(f"CSMA/CD Min Frame (2500 m, 10 Mbps): {min_bits:.0f} bits ({min_bits / 8:.0f} bytes; IEEE 802.3 standard = 64 bytes)")
+
+    # ATM vs Ethernet overhead
+    atm_oh = (5 / 53) * 100
+    eth_oh = (18 / 1518) * 100
+    q_oh = (4 / 1518) * 100
+    print(f"ATM Cell Overhead (5/53 B)   : {atm_oh:.2f}% | Ethernet II (18/1518 B): {eth_oh:.2f}%")
+    print(f"802.1Q VLAN Tag Overhead     : +4 bytes ({q_oh:.2f}% on a 1,518-byte frame)\n")
+
+
+def run_task_6_campus_oversubscription():
+    print("=" * 72)
+    print("TASK 6: UNIVERSITY CAMPUS OVERSUBSCRIPTION RATIO CHECK")
+    print("=" * 72)
+    access_edge_gbps = 48 * 1.0          # 48 Gigabit access ports
+    access_uplink_gbps = 2 * 10.0       # 2x 10G LACP uplinks
+    ratio = access_edge_gbps / access_uplink_gbps
+    print(f"Access Switch Edge Capacity  : {access_edge_gbps:.1f} Gbps")
+    print(f"Access-to-Dist LACP Uplink   : {access_uplink_gbps:.1f} Gbps")
+    print(f"Oversubscription Ratio       : {ratio:.1f} : 1 (Meets <= 4:1 enterprise standard)\n")
+
+
+if __name__ == "__main__":
+    run_task_1_office_bandwidth()
+    run_task_2_topology_reliability()
+    run_task_3_cabling_bom()
+    run_task_4_and_5_calculations()
+    run_task_6_campus_oversubscription()
