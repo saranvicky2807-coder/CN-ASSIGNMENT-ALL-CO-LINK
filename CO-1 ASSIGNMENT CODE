@@ -1,0 +1,35 @@
+##TASK- 1
+LAYERS = [("Application", "HTTP"), ("Transport", "TCP"), ("Network", "IP"),
+          ("Data link", "ETH")]
+
+def send(message):
+    pdu = message
+    for layer, tag in LAYERS:
+        if tag == "ETH":
+            pdu = f"[{tag}|{pdu}|FCS]"
+        else:
+            pdu = f"[{tag}|{pdu}]"
+        print(f"{layer:<12} adds {tag:<4} -> {len(pdu):3d} bytes")
+    return pdu
+
+def receive(frame):
+    pdu = frame
+    for layer, tag in reversed(LAYERS):
+        head = "[" + tag + "|"
+        tail = "|FCS]" if tag == "ETH" else "]"
+        assert pdu.startswith(head) and pdu.endswith(tail), f"{layer}: bad header"
+        pdu = pdu[len(head):-len(tail)]
+    return pdu
+
+# 1. Test with 12-byte robot command
+frame = send("GET /results")
+print("on the wire:", frame)
+print("delivered  :", receive(frame))
+overhead_12 = len(frame) - len("GET /results")
+print(f"overhead   : {overhead_12} bytes for 12 bytes of data ({overhead_12 / len(frame) * 100:.2f}%)\n")
+
+# 2. Test with 1,400-byte camera payload
+camera_data = "X" * 1400
+cam_frame = send(camera_data)
+overhead_1400 = len(cam_frame) - len(camera_data)
+print(f"overhead   : {overhead_1400} bytes for 1400 bytes of data ({overhead_1400 / len(cam_frame) * 100:.2f}%)")
