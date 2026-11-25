@@ -1,0 +1,191 @@
+
+CSA0715 - Computer Networks | Assignment 1 (CO1)
+All-in-One Execution Script (Tasks 3, 4, 7, 8, and 9)
+Student: Vigneshwaran S (Reg No: 192525357
+import math
+
+def run_task_3():
+    print("=" * 65)
+    print("TASK 3: READ A CAPTURED FRAME LAYER BY LAYER (ENCAPSULATION)")
+    print("=" * 65)
+    LAYERS = [("Application", "HTTP"), ("Transport", "TCP"), ("Network", "IP"),
+              ("Data link", "ETH")]
+
+    def send(message):
+        pdu = message
+        for layer, tag in LAYERS:
+            if tag == "ETH":
+                pdu = f"[{tag}|{pdu}|FCS]"
+            else:
+                pdu = f"[{tag}|{pdu}]"
+            print(f"{layer:<12} adds {tag:<4} -> {len(pdu):3d} bytes")
+        return pdu
+
+    def receive(frame):
+        pdu = frame
+        for layer, tag in reversed(LAYERS):
+            head = "[" + tag + "|"
+            tail = "|FCS]" if tag == "ETH" else "]"
+            assert pdu.startswith(head) and pdu.endswith(tail), f"{layer}: bad header"
+            pdu = pdu[len(head):-len(tail)]
+        return pdu
+
+    # 1. 12-byte robot command
+    frame = send("GET /results")
+    print("on the wire:", frame)
+    print("delivered  :", receive(frame))
+    overhead_12 = len(frame) - len("GET /results")
+    print(f"overhead   : {overhead_12} bytes for 12 bytes of data ({overhead_12 / len(frame) * 100:.2f}%)\n")
+
+    # 2. 1,400-byte camera packet comparison
+    camera_data = "X" * 1400
+    cam_frame = send(camera_data)
+    overhead_1400 = len(cam_frame) - len(camera_data)
+    print(f"overhead   : {overhead_1400} bytes for 1400 bytes of data ({overhead_1400 / len(cam_frame) * 100:.2f}%)\n")
+
+
+def run_task_4():
+    print("=" * 65)
+    print("TASK 4: NYQUIST AND SHANNON CAPACITY LIMITS")
+    print("=" * 65)
+
+    def nyquist(bandwidth_hz, levels):
+        return 2 * bandwidth_hz * math.log2(levels)
+
+    def shannon(bandwidth_hz, snr_db):
+        snr_linear = 10 ** (snr_db / 10)
+        return bandwidth_hz * math.log2(1 + snr_linear)
+
+    media = [("Telephone line", 3_100, 30),
+             ("Cat6 pair", 250e6, 40),
+             ("Wi-Fi 6 channel", 160e6, 25)]
+
+    for name, bw, snr in media:
+        print(f"{name:<16} Shannon limit {shannon(bw, snr) / 1e6:10.2f} Mbps")
+    print(f"Nyquist, 3,100 Hz with 4 levels: {nyquist(3_100, 4) / 1e3:.1f} kbps")
+
+    # Required SNR for 56 kbps on 3,100 Hz telephone line
+    req_snr_linear = (2 ** (56_000 / 3_100)) - 1
+    req_snr_db = 10 * math.log10(req_snr_linear)
+    print(f"\nRequired SNR for 56 kbps on 3,100 Hz line : {req_snr_db:.2f} dB (Unrealistic)")
+
+    # Alternative Concept: Wi-Fi 6 (160 MHz) near welders at 15 dB SNR
+    print(f"Wi-Fi 6 at 15 dB SNR (welding interference): {shannon(160e6, 15) / 1e6:.2f} Mbps\n")
+
+
+def run_task_7():
+    print("=" * 65)
+    print("TASK 7: CRC ERROR DETECTION (GENERATOR 1011)")
+    print("=" * 65)
+
+    def mod2_div(dividend, divisor):
+        """Return the remainder of modulo-2 (XOR) division of two bit strings."""
+        rem = list(dividend)
+        for i in range(len(dividend) - len(divisor) + 1):
+            if rem[i] == "1":
+                for j in range(len(divisor)):
+                    rem[i + j] = "0" if rem[i + j] == divisor[j] else "1"
+        return "".join(rem[-(len(divisor) - 1):])
+
+    def encode(data, gen):
+        crc = mod2_div(data + "0" * (len(gen) - 1), gen)
+        return data + crc
+
+    def check(frame, gen):
+        return set(mod2_div(frame, gen)) == {"0"}
+
+    GEN = "1011"  # x^3 + x + 1
+    frame = encode("1101011011", GEN)
+    print("transmitted:", frame)
+    print("no error   :", check(frame, GEN))
+
+    bad = frame[:4] + ("1" if frame[4] == "0" else "0") + frame[5:]
+    print("1-bit error:", check(bad, GEN))
+
+    burst = frame[:2] + "".join("1" if b == "0" else "0" for b in frame[2:5]) + frame[5:]
+    print("3-bit burst:", check(burst, GEN))
+
+    # Undetected error pattern (XORing an exact multiple of generator 1011)
+    error_pattern = "0000000001011"
+    undetected = "".join("1" if f != e else "0" for f, e in zip(frame, error_pattern))
+    print("undetected :", check(undetected, GEN), f"(corrupted frame {undetected} passes check!)\n")
+
+
+def run_task_8():
+    print("=" * 65)
+    print("TASK 8: HAMMING(7,4) FORWARD ERROR CORRECTION")
+    print("=" * 65)
+
+    def encode(d):  # d = [d1, d2, d3, d4]
+        p1 = d[0] ^ d[1] ^ d[3]
+        p2 = d[0] ^ d[2] ^ d[3]
+        p3 = d[1] ^ d[2] ^ d[3]
+        return [p1, p2, d[0], p3, d[1], d[2], d[3]]  # positions 1..7
+
+    def decode(c):
+        s1 = c[0] ^ c[2] ^ c[4] ^ c[6]  # positions 1, 3, 5, 7
+        s2 = c[1] ^ c[2] ^ c[5] ^ c[6]  # positions 2, 3, 6, 7
+        s3 = c[3] ^ c[4] ^ c[5] ^ c[6]  # positions 4, 5, 6, 7
+        pos = s1 + 2 * s2 + 4 * s3
+        corrected = c[:]
+        if pos != 0:
+            corrected[pos - 1] ^= 1
+        return pos, [corrected[2], corrected[4], corrected[5], corrected[6]]
+
+    word = encode([1, 0, 1, 1])
+    print("codeword   :", "".join(map(str, word)))
+
+    for flip in (None, 5):
+        rx = word[:]
+        if flip:
+            rx[flip - 1] ^= 1
+        pos, data = decode(rx)
+        print(f"error at {str(flip):<4}: syndrome {pos}, data {''.join(map(str, data))}")
+
+    # Flip two bits (positions 3 and 5) to show miscorrection
+    rx_2bit = word[:]
+    rx_2bit[2] ^= 1  # position 3
+    rx_2bit[4] ^= 1  # position 5
+    pos2, data2 = decode(rx_2bit)
+    print(f"2-bit error  : syndrome {pos2} (flips bit {pos2}!), wrong output {''.join(map(str, data2))}\n")
+
+
+def run_task_9():
+    print("=" * 65)
+    print("TASK 9: SLIDING-WINDOW LINK UTILISATION")
+    print("=" * 65)
+
+    def utilisation(frame_bits, rate_bps, distance_m, window, speed=2e8):
+        tx = frame_bits / rate_bps       # transmission time
+        prop = distance_m / speed        # propagation time
+        a = prop / tx
+        u = min(1.0, window / (1 + 2 * a))
+        return u, a
+
+    links = [("Campus LAN, 200 m, 1 Gbps", 1e9, 200),
+             ("City fibre, 50 km, 1 Gbps", 1e9, 50_000),
+             ("Satellite, 36,000 km, 10 Mbps", 10e6, 36_000_000)]
+
+    for name, rate, dist in links:
+        u1, a = utilisation(12_000, rate, dist, 1)
+        u7, _ = utilisation(12_000, rate, dist, 7)
+        u127, _ = utilisation(12_000, rate, dist, 127)
+        print(f"{name:<31} a = {a:7.2f}  stop-and-wait {u1:6.1%}  "
+              f"W=7 {u7:6.1%}  W=127 {u127:6.1%}")
+
+    # Smallest window for 100% utilisation on satellite link
+    _, a_sat = utilisation(12_000, 10e6, 36_000_000, 1)
+    min_w_sat = math.ceil(1 + 2 * a_sat)
+    print(f"\nSmallest window for 100% utilisation on Satellite link  : {min_w_sat} frames")
+
+    # Head-Office 400 km link check
+    u_ho, a_ho = utilisation(12_000, 1e9, 400_000, 1)
+    print(f"Head-Office 400 km link: a = {a_ho:.2f}, Stop-and-Wait = {u_ho:.2%}, Min Window = {math.ceil(1 + 2 * a_ho)} frames\n")
+
+
+if __name__ == "__main__":
+    run_task_3()
+    run_task_4()
+    run_task_7()
+    run_task_8()
+    run_task_9()
