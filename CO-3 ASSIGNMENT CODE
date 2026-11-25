@@ -1,0 +1,202 @@
+"""
+CSA0715 - Computer Networks | Assignment 3 (CO3)
+All-in-One Execution Script (Q1 through Q7 Complete-the-Code & Protocol Calculations)
+Student: Vigneshwaran S (Reg No: 192525357)
+"""
+import math
+import socket
+import threading
+import time
+
+
+def run_q1_sockets():
+    print("=" * 70)
+    print("Q1: UDP AND TCP MULTIPLEXING / DEMULTIPLEXING SOCKETS")
+    print("=" * 70)
+
+    def udp_server(sock):
+        for _ in range(3):
+            data, addr = sock.recvfrom(1024)
+            reply = b"ACK:" + data
+            sock.sendto(reply, addr)
+
+    def tcp_server(sock):
+        conn, _ = sock.accept()
+        with conn:
+            total = 0
+            while True:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                total += len(chunk)
+            print(f"TCP server received {total} bytes in order")
+
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    u.bind(("127.0.0.1", 0))
+    t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    t.bind(("127.0.0.1", 0))
+    t.listen(1)
+
+    th_u = threading.Thread(target=udp_server, args=(u,))
+    th_t = threading.Thread(target=tcp_server, args=(t,))
+    th_u.start()
+    th_t.start()
+
+    for name in ("lab1", "lab2", "lab3"):
+        c = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        c.sendto(name.encode(), u.getsockname())
+        reply, _ = c.recvfrom(1024)
+        print("UDP", name, "->", reply.decode())
+        c.close()
+
+    c = socket.create_connection(t.getsockname())
+    c.sendall(b"x" * 100_000)
+    c.close()
+
+    th_u.join()
+    th_t.join()
+    u.close()
+    t.close()
+    print()
+
+
+def run_q2_congestion_control():
+    print("=" * 70)
+    print("Q2: TCP CONGESTION CONTROL (RENO VS. TAHOE OVER 20 RTTS)")
+    print("=" * 70)
+
+    def simulate(losses, ssthresh=16, reno=True):
+        cwnd, trace = 1, []
+        for rtt in range(1, 21):
+            trace.append(cwnd)
+            if rtt in losses:
+                ssthresh = max(cwnd // 2, 2)
+                cwnd = ssthresh if reno else 1
+            else:
+                if cwnd < ssthresh:
+                    cwnd = min(cwnd * 2, ssthresh)
+                else:
+                    cwnd += 1
+        return trace
+
+    traces = {}
+    for label, reno in (("Reno ", True), ("Tahoe", False)):
+        tr = simulate({8, 14}, reno=reno)
+        traces[label.strip()] = tr
+        print(label, " ".join(f"{w:2d}" for w in tr), f"| segments sent {sum(tr)}")
+
+    extra = sum(traces["Reno"]) - sum(traces["Tahoe"])
+    print(f"Extra segments delivered by TCP Reno over Tahoe: {extra} segments\n")
+
+
+def run_q3_http_calculations():
+    print("=" * 70)
+    print("Q3: HTTP PAGE-LOAD TIME CALCULATIONS (1 HTML + 80 OBJECTS, RTT=50ms)")
+    print("=" * 70)
+    rtt_ms = 50
+    objects = 80
+    total_files = 1 + objects
+
+    t_non_persist = total_files * 2 * rtt_ms
+    t_persist_nopipe = (1 + 1 + objects) * rtt_ms
+    t_persist_pipe = 3 * rtt_ms
+    t_parallel_6 = (2 + math.ceil(objects / 6) * 2) * rtt_ms
+
+    print(f"Non-persistent HTTP (serial)          : {t_non_persist} ms ({t_non_persist/1000:.2f} s)")
+    print(f"Persistent HTTP/1.1 (no pipelining)   : {t_persist_nopipe} ms ({t_persist_nopipe/1000:.2f} s)")
+    print(f"Persistent HTTP/1.1 (with pipelining) : {t_persist_pipe} ms ({t_persist_pipe/1000:.2f} s)")
+    print(f"6 Parallel Non-persistent connections : {t_parallel_6} ms ({t_parallel_6/1000:.2f} s)\n")
+
+
+def run_q4_dns_resolution():
+    print("=" * 70)
+    print("Q4: ITERATIVE DNS RESOLUTION WITH TTL CACHE")
+    print("=" * 70)
+
+    SERVERS = {
+        "root": {"in.": "tld-in", "com.": "tld-com"},
+        "tld-in": {"ac.in.": "ns-ac"},
+        "tld-com": {"example.com.": "ns-example"},
+        "ns-ac": {"simats.ac.in.": "ns-simats"},
+        "ns-simats": {"results.simats.ac.in.": "10.20.30.40"},
+        "ns-example": {"www.example.com.": "93.184.216.34"},
+    }
+    cache = {}  # maps name -> (ip, expiry_timestamp)
+
+    def resolve(name, ttl=300):
+        now = time.time()
+        if name in cache:
+            ip, expiry = cache[name]
+            if now < expiry:
+                return ip, 0
+            else:
+                del cache[name]
+
+        server, queries = "root", 0
+        while True:
+            queries += 1
+            matches = [k for k in SERVERS[server] if name.endswith(k)]
+            longest_key = max(matches, key=len)
+            target = SERVERS[server][longest_key]
+            if any(ch.isdigit() for ch in target):
+                cache[name] = (target, now + ttl)
+                return target, queries
+            server = target
+
+    for n in ("results.simats.ac.in.", "www.example.com.", "results.simats.ac.in."):
+        ip, q = resolve(n, ttl=300)
+        print(f"{n:<24} {ip:<15} queries sent: {q}")
+    print()
+
+
+def run_q5_mm1_queue():
+    print("=" * 70)
+    print("Q5: M/M/1 ROUTER QUEUE MODEL & LINK SIZING")
+    print("=" * 70)
+
+    def mm1(lam, mu):
+        if lam >= mu:
+            return None
+        rho = lam / mu
+        L = rho / (1 - rho)
+        W = 1 / (mu - lam)
+        return rho, L, W
+
+    mu = 1000  # packets per second the link can send
+    for lam in (500, 800, 900, 950, 990, 1000):
+        r = mm1(lam, mu)
+        if r is None:
+            print(f"load {lam:4d} pkt/s: unstable, queue grows without limit")
+        else:
+            rho, L, W = r
+            print(f"load {lam:4d} pkt/s: rho {rho:.2f}  L {L:6.1f} pkts  W {W * 1000:6.1f} ms")
+
+    # Extra question: Capacity needed for W < 10 ms (0.01 s) at load = 1500 pkt/s
+    # W = 1 / (mu - 1500) < 0.01  =>  mu - 1500 > 100  =>  mu > 1600 pkt/s
+    print("\nRequired capacity for W < 10 ms at 1,500 pkt/s: > 1,600 pkt/s (e.g., 1,601 pkt/s)\n")
+
+
+def run_q6_and_q7_checks():
+    print("=" * 70)
+    print("Q6 & Q7: HANDSHAKE LATENCY & TELEMEDICINE TCP WINDOW THROUGHPUT")
+    print("=" * 70)
+    rtt = 0.100  # 100 ms
+    for proto, rtts in [("TCP + TLS 1.2", 3), ("TCP + TLS 1.3", 2),
+                        ("QUIC (1st visit)", 1), ("QUIC (0-RTT)", 0)]:
+        print(f"{proto:<20} -> {rtts} RTTs -> {rtts * rtt * 1000:5.0f} ms before first byte")
+
+    # Q7: 64 KB TCP window at 300 ms RTT
+    win_bits = 64 * 1024 * 8
+    rtt_4g = 0.300
+    max_mbps = (win_bits / rtt_4g) / 1e6
+    print(f"\nQ7 Max TCP Throughput (64 KB window, 300 ms RTT): {max_mbps:.2f} Mbps")
+    print(f"Time to transfer 5 MB X-ray at {max_mbps:.2f} Mbps       : {(5 * 8) / max_mbps:.2f} seconds\n")
+
+
+if __name__ == "__main__":
+    run_q1_sockets()
+    run_q2_congestion_control()
+    run_q3_http_calculations()
+    run_q4_dns_resolution()
+    run_q5_mm1_queue()
+    run_q6_and_q7_checks()
