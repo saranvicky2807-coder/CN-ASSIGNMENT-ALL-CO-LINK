@@ -1,0 +1,161 @@
+"""
+CSA0715 - Computer Networks | Assignment 5 (CO5)
+All-in-One Execution Script (Part A & Part B Complete-the-Code & Calculations)
+Student: Vigneshwaran S (Reg No: 192525357)
+"""
+import math
+
+
+def run_task_a1_delays_and_bdp():
+    print("=" * 72)
+    print("TASK A1: END-TO-END DELAY BREAKDOWN & BANDWIDTH-DELAY PRODUCT (BDP)")
+    print("=" * 72)
+    pkt_bits = 1500 * 8
+    dist_m = 2000 * 1000
+    speed_mps = 2e8
+    rate_100m = 100e6
+    rate_1g = 1e9
+    routers = 3
+
+    d_prop_ms = (dist_m / speed_mps) * 1000
+    d_trans_100m_ms = (pkt_bits / rate_100m) * 1000 * (routers + 1)
+    d_trans_1g_ms = (pkt_bits / rate_1g) * 1000 * (routers + 1)
+    d_queue_ms = routers * 0.5
+    d_proc_ms = routers * 0.1
+
+    total_100m = d_prop_ms + d_trans_100m_ms + d_queue_ms + d_proc_ms
+    total_1g = d_prop_ms + d_trans_1g_ms + d_queue_ms + d_proc_ms
+
+    print(f"Propagation delay (2,000 km)      : {d_prop_ms:.2f} ms (Dominant: {d_prop_ms/total_100m*100:.1f}%)")
+    print(f"Transmission delay (4x 100 Mbps)  : {d_trans_100m_ms:.2f} ms")
+    print(f"Queuing + Processing (3 routers)  : {d_queue_ms + d_proc_ms:.2f} ms")
+    print(f"Total One-Way Delay (100 Mbps)    : {total_100m:.2f} ms -> Upgraded to 1 Gbps: {total_1g:.2f} ms")
+
+    # A1.2 BDP on 1 Gbps, 80 ms RTT
+    rtt_s = 0.080
+    bdp_bytes = (rate_1g * rtt_s) / 8
+    tcp_win_bits = 64 * 1024 * 8
+    max_thr_mbps = (tcp_win_bits / rtt_s) / 1e6
+    print(f"BDP (1 Gbps, 80 ms RTT)           : {bdp_bytes / 1e6:.2f} MB ({bdp_bytes / (1024**2):.2f} MiB)")
+    print(f"Max Throughput with 64 KB Window  : {max_thr_mbps:.2f} Mbps\n")
+
+
+def run_task_a3_p2p_and_voip():
+    print("=" * 72)
+    print("TASK A3: P2P DISTRIBUTION TIME & VoIP G.711 BANDWIDTH SIZING")
+    print("=" * 72)
+    file_bits = 4 * (1024 ** 3) * 8  # 4 GiB in bits
+    n_centres = 20
+    u_server = 100e6
+    d_centre = 50e6
+    u_centre = 20e6
+
+    d_cs = max((n_centres * file_bits) / u_server, file_bits / d_centre)
+    d_p2p = max(file_bits / u_server, file_bits / d_centre,
+                (n_centres * file_bits) / (u_server + n_centres * u_centre))
+
+    print(f"Client-Server 4 GB Distribution   : {d_cs:.2f} s ({d_cs / 60:.2f} mins)")
+    print(f"Peer-to-Peer 4 GB Distribution    : {d_p2p:.2f} s ({d_p2p / 60:.2f} mins)")
+
+    # VoIP G.711 (64 kbps, 20 ms packets, 40 B headers)
+    pps = 1000 // 20
+    payload_bytes = int((64000 * 0.020) // 8)
+    total_pkt_bits = (payload_bytes + 40) * 8
+    bw_per_dir_kbps = (pps * total_pkt_bits) / 1000
+    calls_2mbps = int(2000 // bw_per_dir_kbps)
+    print(f"G.711 VoIP: {pps} pkt/s, {bw_per_dir_kbps:.1f} kbps/direction -> "
+          f"{calls_2mbps} one-way streams ({calls_2mbps // 2} full-duplex calls) on 2 Mbps\n")
+
+
+def run_task_a4_firewall():
+    print("=" * 72)
+    print("TASK A4: STATELESS PACKET FILTER (CORRECTED VS. SWAPPED RULES)")
+    print("=" * 72)
+
+    RULES = [
+        # (action, protocol, destination port or None for any, source prefix or None)
+        ("allow", "tcp", 443, None),
+        ("allow", "tcp", 22, "10.1."),
+        ("deny", "tcp", 22, None),
+        ("allow", "udp", 53, None),
+    ]
+    DEFAULT = "deny"
+
+    def decide(rules, proto, port, src):
+        for action, p, dport, prefix in rules:
+            if p == proto and (dport is None or dport == port) and (prefix is None or src.startswith(prefix)):
+                return action
+        return DEFAULT
+
+    packets = [("tcp", 443, "49.37.2.8"), ("tcp", 22, "10.1.4.20"),
+               ("tcp", 22, "49.37.2.8"), ("udp", 53, "10.1.4.20"),
+               ("tcp", 80, "49.37.2.8"), ("icmp", None, "49.37.2.8")]
+
+    print("--- Correct Rule Order ---")
+    for pk in packets:
+        print(f"{pk[0]:<5} {str(pk[1]):<5} from {pk[2]:<10} -> {decide(RULES, *pk)}")
+
+    # Swap 2nd and 3rd rules
+    SWAPPED_RULES = [RULES[0], RULES[2], RULES[1], RULES[3]]
+    print("\n--- After Swapping Rules 2 and 3 (Deny SSH Before Admin Allow) ---")
+    for pk in packets:
+        print(f"{pk[0]:<5} {str(pk[1]):<5} from {pk[2]:<10} -> {decide(SWAPPED_RULES, *pk)}")
+    print()
+
+
+def run_task_a5_syn_flood():
+    print("=" * 72)
+    print("TASK A5: SYN FLOOD BACKLOG EXHAUSTION RATE")
+    print("=" * 72)
+    backlog = 1024
+    timeout_s = 60
+    print(f"1 Server (1,024 slots, 60 s timeout) : {backlog / timeout_s:.2f} SYN pkt/s to saturate")
+    print(f"4 Servers (4,096 slots, 60 s timeout): {(backlog * 4) / timeout_s:.2f} SYN pkt/s to saturate\n")
+
+
+def run_task_b1_trace_metrics():
+    print("=" * 72)
+    print("TASK B1: NETWORK PERFORMANCE METRICS FROM CAPTURED RTP TRACE")
+    print("=" * 72)
+
+    # (sequence number, send time in ms, receive time in ms or None if lost, size in bytes)
+    TRACE = [(1, 0, 42, 1200), (2, 20, 61, 1200), (3, 40, 85, 1200),
+             (4, 60, None, 1200), (5, 80, 119, 1200), (6, 100, 146, 1200),
+             (7, 120, 158, 1200), (8, 140, 190, 1200), (9, 160, None, 1200),
+             (10, 180, 222, 1200)]
+
+    def metrics(trace):
+        got = [(s, tx, rx, b) for s, tx, rx, b in trace if rx is not None]
+        loss = ((len(trace) - len(got)) / len(trace)) * 100.0
+        delays = [rx - tx for _, tx, rx, _ in got]
+        avg_delay = sum(delays) / len(delays)
+        diffs = [abs(delays[i] - delays[i - 1]) for i in range(1, len(delays))]
+        jitter = sum(diffs) / len(diffs)
+        total_bits = sum(b * 8 for _, _, _, b in got)
+        duration_ms = got[-1][2] - got[0][1]
+        throughput = total_bits / duration_ms  # bits / ms == kbps
+        return loss, avg_delay, jitter, throughput
+
+    print("--- Original Trace (With Lost Packets 4 & 9) ---")
+    loss, d, j, thr = metrics(TRACE)
+    print(f"packet loss {loss:.1f} %")
+    print(f"average delay {d:.1f} ms, jitter {j:.1f} ms")
+    print(f"throughput {thr:.1f} kbps")
+    print("VoIP quality:", "acceptable" if d < 150 and j < 30 and loss < 1 else "poor")
+
+    print("\n--- Clean Trace (After Removing Lost Packets 4 & 9) ---")
+    clean_trace = [pkt for pkt in TRACE if pkt[2] is not None]
+    loss2, d2, j2, thr2 = metrics(clean_trace)
+    print(f"packet loss {loss2:.1f} %")
+    print(f"average delay {d2:.1f} ms, jitter {j2:.1f} ms")
+    print(f"throughput {thr2:.1f} kbps")
+    print("VoIP quality:", "acceptable" if d2 < 150 and j2 < 30 and loss2 < 1 else "poor")
+    print()
+
+
+if __name__ == "__main__":
+    run_task_a1_delays_and_bdp()
+    run_task_a3_p2p_and_voip()
+    run_task_a4_firewall()
+    run_task_a5_syn_flood()
+    run_task_b1_trace_metrics()
